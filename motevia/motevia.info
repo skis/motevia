@@ -1,0 +1,5 @@
+name = Motevia
+description = "Allows users to upload files by passing the uri."
+package = Motevia
+core = 7.x
+files[] = motevia.module
