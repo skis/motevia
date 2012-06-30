@@ -1,21 +1,21 @@
 <?php
 function motevia_field_info(){
 	return array(
-			'motevia_field_info' => array(
-					'label' => t('Motevia'),
-					'description' => t('This field stores the url to the file and the GPS information.'),
-					'default_widget' => 'motevia_field_widget',
-					'default_formatter' => 'motevia_field_formatter',
-			),
+		'motevia_field_info' => array(
+			'label' => t('Motevia'),
+			'description' => t('This field stores the url to the file and the GPS information.'),
+			'default_widget' => 'motevia_field_widget',
+			'default_formatter' => 'motevia_field_formatter',
+		),
 	);
 }
 
 function motevia_field_widget_info(){
 	return array(
-			'motevia_field_widget' => array(
-			  'label' => t('Motevia Widget'),
-					'field types' => array('motevia_field_info'),
-			),
+		'motevia_field_widget' => array(
+		'label' => t('Motevia Widget'),
+		'field types' => array('motevia_field_info'),
+		),
 	);
 }
 
@@ -28,17 +28,17 @@ function motevia_field_widget_form(&$form, &$form_state, $field, $instance, $lan
 	switch ($instance['widget']['type']) {
 		case 'motevia_field_widget':
 			$components['url'] = array(
-			'#type' => 'textfield',
-			'#title' => t('Remote URL'),
-			'#size' => 50,
-			'#value_callback' => 'motevia_field_widget_value',
+				'#type' => 'textfield',
+				'#title' => t('Remote URL'),
+				'#size' => 50,
+				'#value_callback' => 'motevia_field_widget_value',
 			);
 			
 			$components['submit'] = array(
-					'#type' => 'submit',
-					'#value' => t('Transfer'),
-					'#validate' => array(),
-					'#submit' => array('motevia_field_submit'),
+				'#type' => 'submit',
+				'#value' => t('Transfer'),
+				'#validate' => array(),
+				'#submit' => array('motevia_field_submit'),
 			);
 			break;
 	}
@@ -48,7 +48,6 @@ function motevia_field_widget_form(&$form, &$form_state, $field, $instance, $lan
 }
 
 function motevia_field_submit(&$form, &$form_state) {
-// 	watchdog("State: ", print_r($form_state['input']['field_motevia']['und'][0]['motevia']['url'], true));
 	$url = $form_state['input']['field_motevia']['und'][0]['motevia']['url'];
 	$parents = array_slice($form_state['triggering_element']['#parents'], 0, -3);
 	drupal_array_set_nested_value($form_state['input'], $parents, NULL);
@@ -81,18 +80,18 @@ function motevia_field_curl($url = null) {
 		}
 		return;
 	}
+	
 	$url = $info['url'];
 	$url_info = parse_url($url);
 	
 	$filename = _motevia_remote_filename();
+	
 	if (empty($filename)) {
 		$filename = rawurldecode(basename($url_info['path']));
 	}
 	
 	$pathinfo = pathinfo($filename);
 	$filename = motevia_clean_filename($filename, $field['settings']['file_extensions']);
-	watchdog("FileName: ", $filename);
-	watchdog("Temp Dir: ", $temporary_directory);
 	$filepath = file_create_filename($filename, $temporary_directory);
 	
 	if (empty($pathinfo['extension'])) {
@@ -102,6 +101,7 @@ function motevia_field_curl($url = null) {
 	
 	$extensions = $field['settings']['file_extensions'];
 	$regex = '/\.('. preg_replace('/[ +]/', '|', preg_quote($extensions)) .')$/i';
+
 	if (!empty($extensions) && !preg_match($regex, $filename)) {
 		form_error($element, t('Only files with the following extensions are allowed: %files-allowed.', array('%files-allowed' => $extensions)));
 		return;
@@ -110,6 +110,7 @@ function motevia_field_curl($url = null) {
 	if (!empty($element['#upload_validators']['file_validate_size'][0])) {
 		$max_size = $element['#upload_validators']['file_validate_size'][0];
 		$file_size = $info['download_content_length'];
+
 		if ($file_size > $max_size) {
 			form_error($element, t('The remote file is %filesize exceeding the maximum file size of %maxsize.', array('%filesize' => format_size($file_size), '%maxsize' => format_size($max_size))));
 			return;
@@ -145,12 +146,12 @@ function _motevia_remote_parse_header(&$ch, $header) {
 		_motevia_remote_filename($matches[1]);
 	}
 
-	// This is required by cURL.
 	return strlen($header);
 }
 
 function motevia_remote_set_transfer_options($options = NULL) {
 	static $current = FALSE;
+
 	if (isset($options)) {
 		$current = $options;
 	}
@@ -164,8 +165,8 @@ function _motevia_remote_curl_write(&$ch, $data) {
 	if (curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD) / 65536 > $progress_update) {
 		$progress_update++;
 		$progress = array(
-				'current' => curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD),
-				'total' => curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD),
+			'current' => curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD),
+			'total' => curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD),
 		);
 
 		$cid = 'filefield_transfer:'. session_id() . ':' . $options['key'];
@@ -221,73 +222,80 @@ function motevia_save_file($filepath, $validators = array(), $destination = FALS
 		$file->filemime = 'text/plain';
 		$file->uri .= '.txt';
 		$file->filename .= '.txt';
+		
 		if (!empty($extensions)) {
 			$validators['file_validate_extensions'][0] .= ' txt';
 			drupal_set_message(t('For security reasons, your upload has been renamed to %filename.', array('%filename' => $file->filename)));
 		}
-		}
+	}
 		
-		if (empty($destination)) {
-			$destination = 'temporary://';
-		}
+	if (empty($destination)) {
+		$destination = 'temporary://';
+	}
 		
-		$destination_scheme = file_uri_scheme($destination);
-		if (!$destination_scheme || !file_stream_wrapper_valid_scheme($destination_scheme)) {
-			drupal_set_message(t('The file could not be uploaded, because the destination %destination is invalid.', array('%destination' => $destination)), 'error');
-			return FALSE;
-		}
-		
-		if (substr($destination, -1) != '/') {
-			$destination .= '/';
-		}
-		
-		file_prepare_directory($destination, FILE_CREATE_DIRECTORY);
-		
-		$file->destination = file_destination($destination . $file->filename, $replace);
+	$destination_scheme = file_uri_scheme($destination);
 
-		if ($file->destination === FALSE) {
-			drupal_set_message(t('The file %source could not be uploaded because a file by that name already exists in the destination %directory.', array('%source' => $file->filename, '%directory' => $destination)), 'error');
-			return FALSE;
+	if (!$destination_scheme || !file_stream_wrapper_valid_scheme($destination_scheme)) {
+		drupal_set_message(t('The file could not be uploaded, because the destination %destination is invalid.', array('%destination' => $destination)), 'error');
+		return FALSE;
+	}
+		
+	if (substr($destination, -1) != '/') {
+		$destination .= '/';
+	}
+		
+	file_prepare_directory($destination, FILE_CREATE_DIRECTORY);
+		
+	$file->destination = file_destination($destination . $file->filename, $replace);
+
+	if ($file->destination === FALSE) {
+		drupal_set_message(t('The file %source could not be uploaded because a file by that name already exists in the destination %directory.', array('%source' => $file->filename, '%directory' => $destination)), 'error');
+		return FALSE;
+	}
+		
+	$validators['file_validate_name_length'] = array();
+		
+	$errors = file_validate($file, $validators);
+		
+	if (!empty($errors)) {
+		$message = t('The specified file %name could not be uploaded.', array('%name' => $file->filename));
+
+		if (count($errors) > 1) {
+			$message .= theme('item_list', array('items' => $errors));
 		}
-		
-		$validators['file_validate_name_length'] = array();
-		
-		$errors = file_validate($file, $validators);
-		
-		if (!empty($errors)) {
-			$message = t('The specified file %name could not be uploaded.', array('%name' => $file->filename));
-			if (count($errors) > 1) {
-				$message .= theme('item_list', array('items' => $errors));
-			}
-			else {
-				$message .= ' ' . array_pop($errors);
-				}
-				drupal_set_message($message, 'error');
-				return FALSE;
-				}
+		else {
+			$message .= ' ' . array_pop($errors);
+		}
+
+		drupal_set_message($message, 'error');
+		return FALSE;
+	}
 				
-				$file->uri = $file->destination;
-				if (!file_unmanaged_copy($filepath, $file->uri)) {
-					drupal_set_message(t('File upload error. Could not move uploaded file.'), 'error');
-					watchdog('file', 'Upload error. Could not move uploaded file %file to destination %destination.', array('%file' => $file->filename, '%destination' => $file->uri));
-					return FALSE;
-				}
+	$file->uri = $file->destination;
+	
+	if (!file_unmanaged_copy($filepath, $file->uri)) {
+		drupal_set_message(t('File upload error. Could not move uploaded file.'), 'error');
+		watchdog('file', 'Upload error. Could not move uploaded file %file to destination %destination.', array('%file' => $file->filename, '%destination' => $file->uri));
+		return FALSE;
+	}
 				
-				drupal_chmod($file->uri);
+	drupal_chmod($file->uri);
 				
-				if ($replace == FILE_EXISTS_REPLACE) {
-					$existing_files = file_load_multiple(array(), array('uri' => $file->uri));
-					if (count($existing_files)) {
-						$existing = reset($existing_files);
-						$file->fid = $existing->fid;
-					}
-				}
+	if ($replace == FILE_EXISTS_REPLACE) {
+		$existing_files = file_load_multiple(array(), array('uri' => $file->uri));
+
+		if (count($existing_files)) {
+			$existing = reset($existing_files);
+			$file->fid = $existing->fid;
+		}
+	}
 				
-		return file_save($file);
+	return file_save($file);
 }
 
 function _motevia_remote_filename($curl_filename = NULL) {
 	static $filename = NULL;
+	
 	if (isset($curl_filename)) {
 		$filename = $curl_filename;
 	}
@@ -307,6 +315,7 @@ function motevia_clean_filename($filepath, $extensions) {
 		module_load_include('inc', 'transliteration');
 
 		$langcode = NULL;
+
 		if (!empty($_POST['language'])) {
 			$languages = language_list();
 			$langcode = isset($languages[$_POST['language']]) ? $_POST['language'] : NULL;
@@ -317,6 +326,7 @@ function motevia_clean_filename($filepath, $extensions) {
 	if (empty($extensions)) {
 		$extensions = 'jpg jpeg gif png txt doc xls pdf ppt pps odt ods odp';
 	}
+	
 	$filename = file_munge_filename($filename, $extensions);
 	$directory = drupal_dirname($filepath);
 	return ($directory != '.' ? $directory . '/' : '') . $filename;
