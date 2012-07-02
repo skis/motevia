@@ -1,196 +1,252 @@
-<?php
-function motevia_field_info(){
+<?php 
+
+function motevia_menu() {
+	watchdog("1", "1");
+	$params = array();
+	return motevia_invoke_all('menu', $params);
+}
+
+function motevia_element_info() {
+	watchdog("2", "2");
 	return array(
-		'motevia_field_info' => array(
-			'label' => t('Motevia'),
-			'description' => t('This field stores the url to the file and the GPS information.'),
-			'default_widget' => 'motevia_field_widget',
-			'default_formatter' => 'motevia_field_formatter',
+		'managed_file' => array(
+			'#process' => 'motevia_field_process',
+			'#pre_render' => 'motevia_field_pre_render',
+			'#element_validate' => 'motevia_field_validate',
+			'#file_value_callbacks' => array('motevia_field_value'),
 		),
 	);
 }
 
-function motevia_field_widget_info(){
-	return array(
-		'motevia_field_widget' => array(
-		'label' => t('Motevia Widget'),
-		'field types' => array('motevia_field_info'),
-		),
+function motevia_theme() {
+	watchdog("3", "3");
+	$params = array();
+	$theme = motevia_invoke_all('theme', $params);
+
+	$theme['motevia_list'] = array(
+		'arguments' => array('sources' => NULL),
 	);
+
+	return $theme;
 }
 
-function motevia_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element){
-	$value = isset($items[$delta]['motevia']) ? $items[$delta]['motevia'] : '';
+function motevia_motevia_widgets() {
+	watchdog("4", "4");
+	return array('file_generic', 'image_image');
+}
 
-	$widget = $element;
-	$widget['#delta'] = $delta;
-
-	switch ($instance['widget']['type']) {
-		case 'motevia_field_widget':
-			$components['url'] = array(
-				'#type' => 'textfield',
-				'#title' => t('Remote URL'),
-				'#size' => 50,
-				'#value_callback' => 'motevia_field_widget_value',
-			);
-			
-			$components['submit'] = array(
-				'#type' => 'submit',
-				'#value' => t('Transfer'),
-				'#validate' => array(),
-				'#submit' => array('motevia_field_submit'),
-			);
-			break;
+function motevia_form_field_ui_field_edit_form_alter(&$form, &$form_state) {
+	watchdog("5", "5");
+	$instance = $form['#instance'];
+	if (in_array($instance['widget']['type'], module_invoke_all('motevia_widgets'))) {
+		$form['instance']['widget']['settings'] += motevia_form($instance);
 	}
-	$element['motevia'] = $components;
+}
 
+function motevia_field_widget_info_alter(&$info) {
+	watchdog("6", "6");
+	$settings = array(
+		'motevia' => array(),
+	);
+	foreach (module_invoke_all('motevia_widgets') as $widget) {
+		$params = array('save', $widget);
+		$widget_settings = array_merge($settings, motevia_invoke_all('settings', $params));
+		$info[$widget]['settings']['motevia'] = $widget_settings;
+	}
+}
+
+function motevia_form($instance) {
+	watchdog("7", "7");
+	$settings = $instance['widget']['settings']['motevia'];
+
+	$form['motevia'] = array(
+		'#type' => 'fieldset',
+		'#title' => t('File Sources'),
+		'#collapsible' => TRUE,
+		'#collapsed' => TRUE,
+		'#weight' => 20,
+	);
+
+	$sources = motevia_list(FALSE);
+	$sources = isset($settings['motevia']) ? array_intersect_key(array_merge($settings['motevia'], $sources), $sources) : $sources;
+	$form['motevia']['motevia'] = array(
+		'#type' => 'checkboxes',
+		'#title' => t('Enabled Sources'),
+		'#options' => $sources,
+		'#default_value' => $settings['motevia'],
+		'#description' => t('Select the available locations from which this widget may select files.'),
+	);
+
+	$params = array('form', $instance);
+	$form['motevia'] = array_merge($form['motevia'], motevia_invoke_all('settings', $params));
+
+	return $form;
+}
+
+function motevia_field_process($element, &$form_state, $form) {
+	watchdog("8", "8");
+	if (!isset($element['#field_name']) || !($instance = field_widget_instance($element, $form_state))) {
+		return $element;
+	}
+
+	$sources = motevia_info();
+	$enabled_sources = $instance['widget']['settings']['motevia']['motevia'];
+	foreach ($sources as $source_name => $source) {
+		if (empty($enabled_sources[$source_name])) {
+			unset($sources[$source_name]);
+		} elseif (isset($source['process'])) {
+			$function = $source['process'];
+			$element = $function($element, $form_state, $form);
+		}
+	}
+
+	if(empty($sources)) {
+		return $element;
+	}
+
+	$path = drupal_get_path('module', 'motevia');
+
+	$field = field_widget_field($element, $form_state);
+	if ($field['cardinality'] != 1) {
+		$parents = array_slice($element['#array_parents'], 0, -1);
+		$new_path = 'file/ajax/' . implode('/', $parents) . '/' .$form['form_build_id']['#value'];
+		$field_element = drupal_array_get_nested_value($form, $parents);
+		$new_wrapper = $field_element['#id'] . '-ajax-wrapper';
+		foreach (element_children($element) as $key) {
+			foreach (element_children($element[$key]) as $subkey) {
+				if (isset($element[$key][$subkey]['#ajax'])) {
+					$element[$key][$subkey]['#ajax']['path'] = $new_path;
+					$element[$key][$subkey]['#ajax']['wrapper'] = $new_wrapper;
+					$element[$key][$subkey]['#limit_validation_errors'] = array($parents);
+				}
+			}
+		}
+	}
+
+	if (empty($element['fid']['#value'])) {
+		$element['motevia_list'] = array(
+				'#type' => 'markup',
+				'#markup' => theme('motevia_list', array('element' => $element, 'sources' => $sources)),
+				'#weight' => -20,
+		);
+	}
+//Harsha
+	unset($element['#title'], $element['upload_button'], $element['upload']);
+	return $element;
+}
+function motevia_field_pre_render($element) {
+	watchdog("9", "9");
+	if (!empty($element['#value']['fid'])) {
+		foreach (element_children($element) as $key) {
+			if (!empty($element[$key]['#motevia'])) {
+				$element[$key]['#access'] = FALSE;
+			}
+		}
+	}
 	return $element;
 }
 
+function motevia_field_validate($element, &$form_state, $form) {
+	watchdog("10", "10");
+	$sources = motevia_info();
+	foreach ($sources as $source) {
+		if (isset($source['validate'])) {
+			$function = $source['validate'];
+			$function($element, $form_state, $form);
+		}
+	}
+}
+
 function motevia_field_submit(&$form, &$form_state) {
-	$url = $form_state['input']['field_motevia']['und'][0]['motevia']['url'];
+	watchdog("11", "11");
 	$parents = array_slice($form_state['triggering_element']['#parents'], 0, -3);
 	drupal_array_set_nested_value($form_state['input'], $parents, NULL);
 	$form_state['rebuild'] = TRUE;
-	motevia_field_curl($url);
 }
 
-function motevia_field_curl($url = null) {
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_HEADER, TRUE);
-	curl_setopt($ch, CURLOPT_NOBODY, TRUE);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-	curl_setopt($ch, CURLOPT_HEADERFUNCTION, '_motevia_remote_parse_header');
-	@curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
-	curl_exec($ch);
-	$info = curl_getinfo($ch);
-	curl_close($ch);
-	
-	if ($info['http_code'] != 200) {
-		switch ($info['http_code']) {
-			case 403:
-				form_error($element, t('The remote file could not be transfered because access to the file was denied.'));
-				break;
-			case 404:
-				form_error($element, t('The remote file could not be transfered because it was not found.'));
-				break;
-			default:
-				form_error($element, t('The remote file could not be transfered due to an HTTP error (@code).', array('@code' => $info['http_code'])));
-		}
-		return;
-	}
-	
-	$url = $info['url'];
-	$url_info = parse_url($url);
-	
-	$filename = _motevia_remote_filename();
-	
-	if (empty($filename)) {
-		$filename = rawurldecode(basename($url_info['path']));
-	}
-	
-	$pathinfo = pathinfo($filename);
-	$filename = motevia_clean_filename($filename, $field['settings']['file_extensions']);
-	$filepath = file_create_filename($filename, $temporary_directory);
-	
-	if (empty($pathinfo['extension'])) {
-		form_error($element, t('The remote URL must be a file and have an extension.'));
-		return;
-	}
-	
-	$extensions = $field['settings']['file_extensions'];
-	$regex = '/\.('. preg_replace('/[ +]/', '|', preg_quote($extensions)) .')$/i';
-
-	if (!empty($extensions) && !preg_match($regex, $filename)) {
-		form_error($element, t('Only files with the following extensions are allowed: %files-allowed.', array('%files-allowed' => $extensions)));
-		return;
-	}
-	
-	if (!empty($element['#upload_validators']['file_validate_size'][0])) {
-		$max_size = $element['#upload_validators']['file_validate_size'][0];
-		$file_size = $info['download_content_length'];
-
-		if ($file_size > $max_size) {
-			form_error($element, t('The remote file is %filesize exceeding the maximum file size of %maxsize.', array('%filesize' => format_size($file_size), '%maxsize' => format_size($max_size))));
-			return;
+function motevia_field_value($element, &$item, &$form_state) {
+	watchdog("12", "12");
+	$sources = motevia_info();
+	foreach ($sources as $source) {
+		if (isset($source['value'])) {
+			$function = $source['value'];
+			$function($element, $item);
 		}
 	}
-	
-	$options = array(
-			'key' => $element['#entity_type'] . '_' . $element['#bundle'] . '_' . $element['#field_name'] . '_' . $element['#delta'],
-			'filepath' => $filepath,
-	);
-	motevia_remote_set_transfer_options($options);
-	
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_HEADER, FALSE);
-	curl_setopt($ch, CURLOPT_WRITEFUNCTION, '_motevia_remote_curl_write');
-	@curl_setopt($ch, CURLOPT_FOLLOWLOCATION, TRUE);
-
-	if (curl_exec($ch) && $file = motevia_save_file($filepath, $element['#upload_validators'], $element['#upload_location'])) {
-		$item = array_merge($item, (array) $file);
-	}
-	curl_close($ch);
-	@unlink($filepath);
 }
 
-function _motevia_remote_parse_header(&$ch, $header) {
-	if (preg_match('/Content-Disposition:.*?filename="(.+?)"/', $header, $matches)) {
-		// Content-Disposition: attachment; filename="FILE NAME HERE"
-		_motevia_remote_filename($matches[1]);
-	}
-	elseif (preg_match('/Content-Disposition:.*?filename=([^; ]+)/', $header, $matches)) {
-		// Content-Disposition: attachment; filename=file.ext
-		_motevia_remote_filename($matches[1]);
-	}
-
-	return strlen($header);
-}
-
-function motevia_remote_set_transfer_options($options = NULL) {
-	static $current = FALSE;
-
-	if (isset($options)) {
-		$current = $options;
-	}
-	return $current;
-}
-
-function _motevia_remote_curl_write(&$ch, $data) {
-	$progress_update = 0;
-	$options = motevia_remote_get_transfer_options();
-
-	if (curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD) / 65536 > $progress_update) {
-		$progress_update++;
-		$progress = array(
-			'current' => curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD),
-			'total' => curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD),
-		);
-
-		$cid = 'filefield_transfer:'. session_id() . ':' . $options['key'];
-		if ($progress['current'] != $progress['total']) {
-			cache_set($cid, $progress, 'cache', time() + 300);
-		}
-		else {
-			cache_clear_all($cid, 'cache');
+function motevia_invoke_all($method, &$params) {
+	watchdog("13", "13");
+	$return = array();
+	foreach (motevia_includes() as $include) {
+		$function = 'motevia_' . $include . '_' . $method;
+		watchdog("13 Function", $function);
+		if (function_exists($function)) {
+			$result = call_user_func_array($function, $params);
+			if (isset($result) && is_array($result)) {
+				$return = array_merge_recursive($return, $result);
+			}
+			elseif (isset($result)) {
+				$return[] = $result;
+			}
 		}
 	}
+	return $return;
+}
 
-	$data_length = 0;
-	if ($fp = @fopen($options['filepath'], 'a')) {
-		fwrite($fp, $data);
-		fclose($fp);
-		$data_length = strlen($data);
+function motevia_info() {
+	watchdog("14", "14");
+	$info = module_invoke_all('motevia_info');
+	drupal_alter('motevia_info', $info);
+	uasort($info, '_motevia_sort');
+	return $info;
+}
+
+function motevia_list($include_default = TRUE) {
+	watchdog("15", "15");
+	$info = motevia_info();
+	$list = array();
+
+	if ($include_default) {
+		$list['upload'] = t('Upload');
 	}
 
-	return $data_length;
+	foreach ($info as $key => $source) {
+		$list[$key] = $source['name'];
+	}
+
+	return $list;
+}
+
+function motevia_motevia_info() {
+	watchdog("16", "16");
+	$params = array();
+	return motevia_invoke_all('info', $params);
+}
+
+function motevia_includes($include = TRUE, $enabled_only = TRUE) {
+	watchdog("17", "17");
+	if($enabled_only) {
+		$enabled_includes = variable_get('motevia', motevia_includes(FALSE, FALSE));
+	}
+	
+	$includes = array();
+	$directory = drupal_get_path('module', 'motevia') . '/includes';
+
+	foreach(file_scan_directory($directory, '/\.inc$/') as $file) {
+		if (!$enabled_only || in_array($file->name, $enabled_includes)) {
+			$includes[] = $file->name;
+			if ($include) {
+				include_once(DRUPAL_ROOT . '/' . $file->uri);
+			}
+		}
+	}
+	return $includes;
 }
 
 function motevia_save_file($filepath, $validators = array(), $destination = FALSE, $replace = FILE_EXISTS_RENAME) {
 	global $user;
-
+	watchdog("18", "18");
 	$file = new stdClass();
 	$file->uid      = $user->uid;
 	$file->status   = 0;
@@ -222,100 +278,77 @@ function motevia_save_file($filepath, $validators = array(), $destination = FALS
 		$file->filemime = 'text/plain';
 		$file->uri .= '.txt';
 		$file->filename .= '.txt';
-		
 		if (!empty($extensions)) {
 			$validators['file_validate_extensions'][0] .= ' txt';
 			drupal_set_message(t('For security reasons, your upload has been renamed to %filename.', array('%filename' => $file->filename)));
 		}
 	}
-		
+
 	if (empty($destination)) {
 		$destination = 'temporary://';
 	}
-		
-	$destination_scheme = file_uri_scheme($destination);
 
+	$destination_scheme = file_uri_scheme($destination);
 	if (!$destination_scheme || !file_stream_wrapper_valid_scheme($destination_scheme)) {
 		drupal_set_message(t('The file could not be uploaded, because the destination %destination is invalid.', array('%destination' => $destination)), 'error');
 		return FALSE;
 	}
-		
+
 	if (substr($destination, -1) != '/') {
 		$destination .= '/';
 	}
-		
-	file_prepare_directory($destination, FILE_CREATE_DIRECTORY);
-		
-	$file->destination = file_destination($destination . $file->filename, $replace);
 
+	file_prepare_directory($destination, FILE_CREATE_DIRECTORY);
+
+	$file->destination = file_destination($destination . $file->filename, $replace);
 	if ($file->destination === FALSE) {
 		drupal_set_message(t('The file %source could not be uploaded because a file by that name already exists in the destination %directory.', array('%source' => $file->filename, '%directory' => $destination)), 'error');
 		return FALSE;
 	}
-		
+
 	$validators['file_validate_name_length'] = array();
-		
+
 	$errors = file_validate($file, $validators);
-		
+
 	if (!empty($errors)) {
 		$message = t('The specified file %name could not be uploaded.', array('%name' => $file->filename));
-
 		if (count($errors) > 1) {
 			$message .= theme('item_list', array('items' => $errors));
 		}
 		else {
 			$message .= ' ' . array_pop($errors);
 		}
-
 		drupal_set_message($message, 'error');
 		return FALSE;
 	}
-				
+
 	$file->uri = $file->destination;
-	
 	if (!file_unmanaged_copy($filepath, $file->uri)) {
 		drupal_set_message(t('File upload error. Could not move uploaded file.'), 'error');
 		watchdog('file', 'Upload error. Could not move uploaded file %file to destination %destination.', array('%file' => $file->filename, '%destination' => $file->uri));
-		return FALSE;
+	return FALSE;
 	}
-				
+
 	drupal_chmod($file->uri);
-				
 	if ($replace == FILE_EXISTS_REPLACE) {
 		$existing_files = file_load_multiple(array(), array('uri' => $file->uri));
-
 		if (count($existing_files)) {
 			$existing = reset($existing_files);
 			$file->fid = $existing->fid;
 		}
 	}
-				
 	return file_save($file);
-}
-
-function _motevia_remote_filename($curl_filename = NULL) {
-	static $filename = NULL;
-	
-	if (isset($curl_filename)) {
-		$filename = $curl_filename;
-	}
-	return $filename;
-}
-
-function motevia_remote_get_transfer_options() {
-	return motevia_remote_set_transfer_options();
 }
 
 function motevia_clean_filename($filepath, $extensions) {
 	global $user;
-
+	watchdog("19", "19");
 	$filename = basename($filepath);
 
 	if (module_exists('transliteration')) {
 		module_load_include('inc', 'transliteration');
 
 		$langcode = NULL;
-
 		if (!empty($_POST['language'])) {
 			$languages = language_list();
 			$langcode = isset($languages[$_POST['language']]) ? $_POST['language'] : NULL;
@@ -326,8 +359,64 @@ function motevia_clean_filename($filepath, $extensions) {
 	if (empty($extensions)) {
 		$extensions = 'jpg jpeg gif png txt doc xls pdf ppt pps odt ods odp';
 	}
-	
 	$filename = file_munge_filename($filename, $extensions);
 	$directory = drupal_dirname($filepath);
 	return ($directory != '.' ? $directory . '/' : '') . $filename;
+}
+
+function theme_motevia_list($variables) {
+	watchdog("20", "20");
+	$element = $variables['element'];
+	$sources = $variables['sources'];
+
+	$links = array();
+
+// 	$default['upload'] = array(
+// 		'label' => t('Upload'),
+// 		'description' => t('Upload a file from your computer.'),
+// 	);
+// 	$sources = array_merge($default, $sources);
+
+	foreach ($sources as $name => $source) {
+		$links[] = '<a href="#" onclick="return false;" title="' . $source['description'] . '" id="' . $element['#id'] . '-' . $name . '-source" class="motevia motevia-' . $name . '">' . $source['label'] . '</a>';
+	}
+	return '<div class="motevia-list">' . implode(' | ', $links) . '</div>';
+}
+
+function motevia_element_validate($element, $file) {
+	watchdog("21", "21");
+	$validators = $element['#upload_validators'];
+	$errors = array();
+
+	if (!file_exists($file->uri)) {
+		$errors[] = t('The file does not exist.');
+	}
+	else {
+		foreach ($validators as $function => $args) {
+			array_unshift($args, NULL);
+			$args[0] = &$file;
+			$errors = array_merge($errors, call_user_func_array($function, $args));
+		}
+	}
+
+	if (!empty($errors)) {
+		$message = t('The selected file %name could not be referenced.', array('%name' => $file->filename));
+		if (count($errors) > 1) {
+			$message .= '<ul><li>' . implode('</li><li>', $errors) . '</li></ul>';
+		}
+		else {
+			$message .= ' ' . array_pop($errors);
+		}
+		form_error($element, $message);
+		return 0;
+	}
+
+	return 1;
+}
+
+function _motevia_sort($a, $b) {
+	watchdog("22", "22");
+	$a = (array)$a + array('weight' => 0, 'label' => '');
+	$b = (array)$b + array('weight' => 0, 'label' => '');
+	return $a['weight'] < $b['weight'] ? -1 : ($a['weight'] > $b['weight'] ? 1 : strnatcasecmp($a['label'], $b['label']));
 }

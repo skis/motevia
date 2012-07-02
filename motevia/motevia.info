@@ -1,5 +1,6 @@
 name = Motevia
-description = "Allows users to upload files by passing the uri."
+description = "User can use this field to pass the URL to the file name to download it in the background and attach it to the node."
 package = Motevia
 core = 7.x
-files[] = motevia.module
+
+version = "7.x"
